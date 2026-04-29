@@ -1,0 +1,702 @@
+---
+title: "COMP3020: Social web analytics - Group Project"
+author: |
+  - Chaneliza Eng (12345678) – 25% 
+  - Name (x) – 25% 
+  - Name (x) – 25%
+  - Name (x) – 25%
+date: "2025-10-14"
+output: html_document
+---
+
+# Cover Page
+
+**Unit:** COMP3020 – Social Web Analytics\
+**Session:** Spring 2025\
+**Subject Coordinator:** Dr Gizem Intepe\
+**Due Date:** Friday, 17 October 2025
+
+## Group Members and Contributions
+
+| Name          | Student ID | Contribution (%) |
+|---------------|------------|------------------|
+| Chaneliza Eng | 22051740   | 25%              |
+| Name          | x          | 25%              |
+| Name          | x          | 25%              |
+| Name          | x          | 25%              |
+
+**Total Contribution:** 100%
+
+Each group member contributed to data collection, text analysis, network graph sections, clustering, visualisations, hypothesis testing, overall editing, and report writing.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r authetication and load packages}
+library("atrrr")
+library("tm")
+library("SnowballC") 
+library("wordcloud")
+library("dplyr")
+
+ls("package:atrrr")
+
+user <- "elaliza.bsky.social"
+password = "4rhc-o5ku-fnce-6fin"
+
+auth(user = user, password = password)
+
+```
+
+```{r q.1.1. Collect Posts}
+posts1 <- search_post("Climate Change", limit = 300)
+posts2 <- search_post("Elon Musk", limit = 300)
+posts3 <- search_post("Christmas Carols", limit = 300)
+
+
+# take posts and make into data frames that contain author handle, text, 
+# indexed at, like count, reply count, langs
+
+#extract relevant fields and create df
+dataframe1 = function(allposts, keyword){
+  data.frame(
+    keyword = keyword,
+    author_handle = allposts$author_handle,
+    text = allposts$text,
+    indexed_at = allposts$indexed_at,
+    like_count = allposts$like_count,
+    reply_count = allposts$reply_count,
+    langs = sapply(allposts$langs, function(x) paste(x, collapse = ",")),
+    stringsAsFactors = FALSE
+  )
+}
+
+df1 = dataframe1(posts1, "Climate Change")
+df2 = dataframe1(posts2, "Elon Musk")
+df3 = dataframe1(posts3, "Christmas Carols")
+
+combinedposts = rbind(df1, df2, df3) #combine all the df
+
+#print summary display
+
+cat("Total posts collected:", nrow(combinedposts))
+cat("Climate Change posts:", nrow(df1))
+cat("Elon Musk posts:", nrow(df2))
+cat("Christmas Carols:", nrow(df3))
+
+cat("Sample of collected data:")
+print(head(combinedposts[, c("keyword", "author_handle", "like_count", "reply_count")],5))
+
+```
+
+```{r q.1.2. Word Frequency Visualisation}
+
+#define function to clean text and generate word cloud for the 3 keywords
+cleanCloud <- function(x,y){
+  post.corpus <-  Corpus(VectorSource(x)) #create text corpus
+  post.corpus <- tm_map(post.corpus, function(i) iconv(i, to='ASCII', sub= '')) #convert text to ASCII
+  
+  #remove all url (websites)
+  removeURL = content_transformer(function(x) gsub("http[s]?://[[:alnum:]./]+", "", x))
+  post.corpus = tm_map(post.corpus, removeURL)
+  
+  custom_stopwords= c(stopwords("english"), "amp", "tp") #you can add more
+  
+  post.corpus = tm_map(post.corpus, content_transformer(tolower)) #convert text to lowercase
+  post.corpus = tm_map(post.corpus, removeNumbers) #remove numerics
+  post.corpus = tm_map(post.corpus, removePunctuation) #remove punctuation marks
+  post.corpus = tm_map(post.corpus, removeWords, custom_stopwords) #remove standard and custom stopwords
+  post.corpus = tm_map(post.corpus, stripWhitespace) #remove extra white space
+  post.corpus = tm_map(post.corpus, stemDocument, language = "english") #
+  
+  tdm = TermDocumentMatrix(post.corpus, control = list(wordLengths= c(3, Inf)))
+  
+  #remove empty documents after cleaning , as cleaning may remove all words!!!
+  empties = which(colSums(as.matrix(tdm)) == 0)
+  if (length(empties) > 0) {
+    tdm = tdm[, -empties]
+  }
+  
+  tdmw = weightTfIdf(tdm) #require tdm matrix, and apply Tf-idf weighting
+  T = as.matrix(tdmw)
+  
+  freqsw = rowSums(T) #calculate frequencies
+  
+  wordcloud(names(freqsw),
+            freqsw,
+            random.order = FALSE,
+            min.freq = 6,
+            max.words = 200,
+            scale = c(1, .5))
+  title(y)
+  
+  return(list(tdm = tdm, tdmw = tdmw, empties = empties))
+
+}
+par(mfrow = c(1,3), mar = c(2,2,3,2))
+
+cat("Creating word cloud 1: Climate Change")
+result1 = cleanCloud(df1$text, "Climate Change")
+
+cat("Creating word cloud 2: Elon Musk")
+result2 = cleanCloud(df2$text, "Elon Musk")
+
+cat("Creating word cloud 3: Christmas Carols")
+result3 = cleanCloud(df3$text, "Christmas Carols")
+
+```
+
+```{r q1.3. Hypothesis Testing}
+
+keywordA = "Climate Change"
+keywordB = "Elon musk"
+
+likesA = df1$like_count
+likesB = df2$like_count
+
+cat("Comparing average number of likes between keyword A and keyword B ")
+cat("Keyword A: ", keywordA)
+cat("Keyword B: ", keywordB)
+cat("Sample size of A =", length(likesA), ",and B =", length(likesB))
+
+##State hypothesis
+# H0 = There is no difference in average number of likes between keyword A and keyword B.
+# Ha = There is a significant difference in average number of likes between keyword A and keyword B 
+
+#stats
+cat("Keyword A: ", keywordA, "\n",
+    "Mean: ", mean(likesA),
+    "Standard Deviation: ", sd(likesA),
+    "Median: ", median(likesA),
+    "Min: ", min(likesA),
+    "Max: ", max(likesA))
+
+cat("Keyword B: ", keywordB, "\n",
+    "Mean: ", mean(likesB),
+    "Standard Deviation: ", sd(likesB),
+    "Median: ", median(likesB),
+    "Min: ", min(likesB),
+    "Max: ", max(likesB))
+
+#diagnosis test
+#par(mfrow = c(1,3), mar = c(2,2,3,2))
+hist(likesA, main = paste(keywordA, "Like distribution histogram"),
+     xlab = "Like Count", col = "blue", breaks = 20)
+abline(v = mean(likesA), col = "red")
+
+hist(likesB, main = paste(keywordB, "Like distribution histogram"),
+     xlab = "Like Count", col = "green", breaks = 20)
+abline(v = mean(likesB), col = "red")
+
+#MORE TESTS!!!!!!!
+
+#t-test
+t_test = t.test(likesA, likesB, var.equal = TRUE)
+print(t_test)
+
+```
+
+```{r q2.1. build the user graph}
+
+library("igraph")
+
+climateUser <- search_user("Climate Change", limit = 300) 
+head(climateUser$handle) # checking variable is established
+
+userInfo <- get_user_info(unique(climateUser$handle))
+names(userInfo)
+
+pos <- which.max(userInfo$followers_count) #which.max to find user with highest follower count
+seedClimateHandle <- userInfo$actor_handle[pos]
+seedClimateHandle
+
+friends <- get_follows(seedClimateHandle, limit = 50) #retrieve 1st degree friends
+friendsName = friends$actor_handle
+n <-  length(friendsName)
+
+friendsOfFriends <- sapply(friendsName, get_follows, limit = 50) #retrieve 2nd degree friends
+head(friendsOfFriends[[1]]$actor_handle)
+
+#creating edge list for graph analysis
+climate.r <-  rep(seedClimateHandle,n)
+el.climate <- cbind(climate.r,friendsName)
+el.climate
+
+el.friends = list()
+for (i in 1:n){
+  if(!is.null(friendsOfFriends[[i]]) &&
+     nrow(friendsOfFriends[[i]]) > 0 &&
+     "actor_handle" %in% names(friendsOfFriends[[i]])) {
+    name_rep = rep(friendsName[i], length(friendsOfFriends[[i]]$actor_handle))
+    el.friends[[i]] = cbind(name_rep,friendsOfFriends[[i]]$actor_handle)
+  }
+}
+
+el.friends = el.friends[!sapply(el.friends, is.null)]
+el.more = do.call(rbind, el.friends)
+el = rbind(el.climate,el.more)
+
+dim(el)
+cat("Total edges: ", nrow(el), "\n")
+cat("Unique users: ", length(unique(c(el[,2]))))
+
+```
+
+```{r q2.2. visualising the graph}
+
+#full graph
+par(mfrow = c(1,1))
+
+g = graph_from_edgelist(el, directed = TRUE)
+plot(g, layout = layout.fruchterman.reingold,
+     vertex.size = 1, edge.arrow.size = 0.1,
+     vertex.label.cex = 0.1, vertex.color= "pink",
+     vertex.shape="circle", vertex.label.color= "black")
+
+#simplified subgraph
+
+top_users <- names(sort(degree(g, mode = "all"), decreasing = TRUE))[1:20]
+subg <- induced_subgraph(g, vids = top_users)
+
+plot(
+  subg,
+  layout = layout.fruchterman.reingold(subg),
+  vertex.size = degree(subg, mode = "all") * 0.8,
+  vertex.label.cex = 0.7,
+  edge.arrow.size = 0.3,
+  vertex.color = "orange",
+  vertex.label.color = "black",
+  main = "Top 20 Most Connected Users"
+)
+
+
+```
+
+```{r q2.3. Centrality Analysis}
+
+#degree centrality 
+
+order(degree(g), decreasing = TRUE)
+centralIDs = order(degree(g), decreasing = TRUE)[1:5]
+V(g)[centralIDs] #show most central vertices
+
+for (i in 1:5){
+  cat(sprintf("%d. %s (degree = %d)\n", i, 
+              V(g)$name[centralIDs[i]], 
+              degree(g)[centralIDs[i]])
+)
+}
+
+#betweenness centrality 
+
+order(betweenness(g), decreasing = TRUE)
+betweenIDs = order(betweenness(g), decreasing = TRUE)[1:5]
+V(g)[betweenIDs]
+
+for (i in 1:5){
+  cat(sprintf("%d. %s (degree = %d)\n", i, 
+              V(g)$name[betweenIDs[i]], 
+              degree(g)[betweenIDs[i]])
+  )
+}
+
+#plot visualisation
+
+par(mfrow = c(1,3), mar = c(2,2,3,2))
+
+hist(degree(g), breaks = 30, col = "blue", border = "white",
+     main = "Degree Distribution", xlab = "Degree", ylab = "Frequency")
+
+# Betweenness distribution
+hist(betweenness(g), breaks = 30, col = "red", border = "white",
+     main = "Betweenness Distribution", xlab = "Betweenness", ylab = "Frequency")
+
+# Degree vs Betweenness
+plot(degree(g), betweenness(g), pch = 16, col = "yellow",
+     main = "Degree vs Betweenness", xlab = "Degree", ylab = "Betweenness")
+
+# In-degree vs Out-degree
+plot(degree(g, mode = "in"), degree(g, mode = "out"), pch = 16, col = "green",
+     main = "In vs Out Degree", xlab = "In-Degree", ylab = "Out-Degree")
+abline(a = 0, b = 1, col = "red", lty = 2)
+
+graph.density(g)
+
+degree.distribution(g)
+
+```
+
+```{r q3.1}
+
+user.behaviour <- userInfo %>%
+  dplyr::select(followers_count, follows_count, posts_count)
+
+user.behaviour <- na.omit(user.behaviour)
+
+scaled.behaviour <- scale(user.behaviour)
+
+withinss <- numeric(10)
+for (k in 1:10) {
+  km <- kmeans(scaled.behaviour, centers = k, nstart = 10)
+  withinss[k] <- km$tot.withinss
+}
+plot(1:10, withinss, type="b", xlab="Number of clusters",
+     ylab="Total within-cluster sum of squares",
+     main="Elbow Method to choose k")
+
+set.seed(123) # for reproducibility
+k3 <- kmeans(scaled.behaviour, centers = 3, nstart = 20)
+
+userInfo$cluster <- k3$cluster
+
+pca <- prcomp(scaled.behaviour)
+summary(pca)
+
+plot(pca$x[,1], pca$x[,2], col = userInfo$cluster,
+     pch = 19, xlab = "PC1", ylab = "PC2",
+     main = "User Clusters by Behavioural Features (PCA)")
+legend("topright", legend = paste("Cluster", 1:3), col = 1:3, pch = 19)
+
+```
+
+```{r q3.2}
+
+graph_handles <- unique(c(seedClimateHandle, friendsName))
+
+# Initialize list to store posts
+user_posts <- list()
+
+# Retrieve posts for each user
+for (i in 1:length(graph_handles)) {
+  handle <- graph_handles[i]
+  cat("Retrieving posts for user", i, "of", length(graph_handles), ":", handle, "\n")
+  
+  # Get up to 10 most recent posts
+  posts <- get_skeets_authored_by(handle, limit = 10, filter = "posts_with_replies")
+  
+  # Store the posts
+  user_posts[[handle]] <- posts
+  
+  # Brief pause to be respectful to the API
+  if(i%%10==0) cat(sprintf("Progress: %d/%d\n", i, length(graph_handles)))
+  Sys.sleep(0.2)
+}
+
+
+# Concatenate the posts into a single document per user to create one 
+#row per user. (If you struggle with merging posts, 
+#you may retrieve and use only the most recent post per user instead.)
+
+user_documents = lapply(user_posts, function(posts) {
+  if (!is.null(posts$text) && length(posts$text) > 0) {
+    paste(posts$text, collapse = " ")
+  } else {
+  NA
+}
+  })
+
+user_documents = user_documents[!is.na(user_documents)]
+
+# Build a TF-IDF matrix from the user documents.
+# make a corpus
+corpus = Corpus(VectorSource(user_documents))
+
+corpus_clean = corpus %>% #clean text
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace)
+
+
+# Create TF-IDF matrix
+
+tfidf_matrix = DocumentTermMatrix(corpus_clean, 
+                                  control = list(weighting = weightTfIdf))
+
+tfidf_matrix = removeSparseTerms(tfidf_matrix, sparse = 0.95)
+# Apply clustering (K-means) and visualise.
+
+# Convert TF-IDF matrix to regular matrix for clustering
+tfidf_reg = as.matrix(tfidf_matrix)
+
+# elbow method to choose k
+withinss = numeric(10)
+for (k in 1:10) {
+  set.seed(123)
+  km = kmeans(tfidf_reg, centers = k, nstart = 25)
+  withinss[k] <- km$tot.withinss
+}
+
+plot(1:10, withinss, type = "b", 
+     xlab = "Number of clusters",
+     ylab = "Total within cluster sum of squares",
+     main = "Elbow Method to find k means")
+
+# use k3
+set.seed(123)
+k3_text = kmeans(tfidf_reg, centers = 3, nstart = 20)
+
+text_clusters = data.frame(
+  actor_handle = names(user_documents),
+  text_cluster = k3_text$cluster,
+  stringsAsFactors = FALSE
+)
+
+userInfo = userInfo %>%
+  left_join(text_clusters, by = "actor_handle")
+
+# Visualaise:
+
+pca_text = prcomp(tfidf_reg, scale. = TRUE)
+
+plot(pca_text$x[,1], pca_text$x[,2], 
+     col = k3_text$cluster,
+     pch = 19, xlab = "PC1", ylab = "PC2",
+     main = "User Clusters by Text Content (TF-IDF PCA)")
+legend("topright", legend = paste("Cluster", 1:3), col = 1:3, pch = 19)
+
+```
+
+```{r q3.3}
+# ----------------------------------------------------
+# Hypotheses:
+# H0 (null): Metadata-based clusters and text-based clusters are independent.
+# H1 (alt): There is an association between metadata-based and text-based clusters.
+# ----------------------------------------------------
+
+# 1. Build the contingency table
+table_clusters <- table(user_text_subset$cluster, user_text_subset$text_cluster)
+
+# 2. Pre-checks: ensure valid and sufficient data for chi-squared test
+if (all(dim(table_clusters) > 1) && sum(table_clusters) > 10) {
+
+  # 3. Compute expected counts under independence
+  expectedIndependent = function(X) {
+    n = sum(X)
+    p = rowSums(X) / n
+    q = colSums(X) / n
+    return(p %o% q * n)  # Outer product for expected frequencies
+  }
+
+  expected_counts <- expectedIndependent(table_clusters)
+
+  # Check if expected counts are mostly ≥ 5
+  low_expected <- sum(expected_counts < 5) / length(expected_counts)
+  if (low_expected > 0.2) {
+    cat("Warning: More than 20% of expected counts are below 5 — test may be unreliable.\n")
+  }
+
+  # 4. Chi-squared statistic function (ignores zero expected cells)
+  chiSquaredStatistic = function(X, E) {
+    valid = E > 0
+    sum((X[valid] - E[valid])^2 / E[valid])
+  }
+
+  # 5. Compute observed chi-squared value
+  x2_observed <- chiSquaredStatistic(table_clusters, expected_counts)
+
+  # 6. Permutation test: shuffle text clusters and recompute chi-squared
+  set.seed(123)  # Reproducibility
+  x2_distribution <- replicate(1000, {
+    shuffled <- sample(user_text_subset$text_cluster)
+    permuted_table <- table(user_text_subset$cluster, shuffled)
+    chiSquaredStatistic(permuted_table, expected_counts)
+  })
+
+  # 7. Calculate p-value
+  p_value <- mean(x2_distribution >= x2_observed)
+
+  # 8. Report results
+  cat("Observed chi-squared statistic:", round(x2_observed, 3), "\n")
+  cat("Permutation test p-value:", round(p_value, 4), "\n")
+
+  # 9. Plot distribution of permuted statistics
+  hist(x2_distribution, main = "Permutation Distribution of Chi-squared",
+       xlab = "Chi-squared Statistic", breaks = 30)
+  abline(v = x2_observed, col = "red", lwd = 2)
+
+} else {
+  cat("Not enough data or only one cluster present — chi-squared test not applicable.\n")
+}
+
+
+
+# Ensure required library is loaded
+library(ggplot2)
+library(dplyr)
+
+# Create plot_df with PCA coordinates and cluster assignments
+plot_df <- data.frame(
+  PC1 = pca$x[, 1],  # From metadata PCA (3.1)
+  PC2 = pca$x[, 2],
+  meta_cluster = factor(userInfo$cluster),
+  text_cluster = userInfo$text_cluster
+)
+
+# Filter to users with both metadata and text clusters
+plot_df <- plot_df %>% filter(!is.na(text_cluster))
+
+# Convert text_cluster to factor (for shapes)
+plot_df$text_cluster <- factor(plot_df$text_cluster, levels = c(1, 2, 3))
+
+# Create the plot
+ggplot(plot_df, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = meta_cluster, shape = text_cluster), size = 3, alpha = 0.8) +
+  labs(
+    title = "3.3 Combined Clustering: Metadata (color) vs Text (shape)",
+    x = "PC1 (from Metadata PCA)",
+    y = "PC2 (from Metadata PCA)",
+    color = "Metadata Cluster",
+    shape = "Text Cluster"
+  ) +
+  theme_minimal() +
+  theme(text = element_text(size = 14))
+
+
+
+# Create combined plot_df
+plot_df <- data.frame(
+  PC1 = pca$x[, 1],
+  PC2 = pca$x[, 2],
+  meta_cluster = factor(userInfo$cluster),
+  text_cluster = userInfo$text_cluster
+)
+
+# Convert text_cluster to factor including NA as a level
+plot_df$text_cluster <- factor(plot_df$text_cluster, levels = c(1, 2, 3))
+plot_df$text_cluster <- addNA(plot_df$text_cluster)
+levels(plot_df$text_cluster)[is.na(levels(plot_df$text_cluster))] <- "No Text Cluster"
+
+# Plot with NA users shown as special shape
+ggplot(plot_df, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = meta_cluster, shape = text_cluster), size = 3, alpha = 0.8) +
+  labs(
+    title = "3.3 Combined Clustering: Metadata (color) vs Text (shape)",
+    x = "PC1 (from Metadata PCA)",
+    y = "PC2 (from Metadata PCA)",
+    color = "Metadata Cluster",
+    shape = "Text Cluster"
+  ) +
+  theme_minimal() +
+  theme(text = element_text(size = 14))
+
+
+# View structure of userInfo dataframe
+head(userInfo[, c("actor_description", "pinned_post")], 5)
+
+
+
+
+library(dplyr)
+library(ggplot2)
+
+# Clean data: remove NA values for relevant columns
+df <- userInfo %>%
+  filter(!is.na(posts_count), !is.na(followers_count), !is.na(follows_count))
+
+# Calculate correlations (raw data)
+cor_posts_followers <- cor(df$posts_count, df$followers_count, method = "pearson")
+cor_posts_follows <- cor(df$posts_count, df$follows_count, method = "pearson")
+
+cat("Correlation between posts_count and followers_count:", cor_posts_followers, "\n")
+cat("Correlation between posts_count and follows_count:", cor_posts_follows, "\n")
+
+# Bin users by posts count
+df <- df %>%
+  mutate(posts_bin = cut(posts_count, breaks = c(-1,10,50,100,500, Inf),
+                         labels = c("0-10", "11-50", "51-100", "101-500", "500+")))
+
+# Summary stats by posts_bin
+summary_by_posts_bin <- df %>%
+  group_by(posts_bin) %>%
+  summarise(
+    avg_followers = mean(followers_count, na.rm = TRUE),
+    avg_follows = mean(follows_count, na.rm = TRUE),
+    count = n()
+  )
+
+print(summary_by_posts_bin)
+
+# Plot posts_count vs followers_count (raw scale)
+p1 <- ggplot(df, aes(x = posts_count, y = followers_count)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Posts vs Followers",
+       x = "Number of Posts",
+       y = "Followers Count") +
+  theme_minimal()
+
+# Plot posts_count vs follows_count (raw scale)
+p2 <- ggplot(df, aes(x = posts_count, y = follows_count)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(title = "Posts vs Follows",
+       x = "Number of Posts",
+       y = "Follows Count") +
+  theme_minimal()
+
+# Plot average followers by posts_bin
+p3 <- ggplot(summary_by_posts_bin, aes(x = posts_bin, y = avg_followers)) +
+  geom_col(fill = "skyblue") +
+  labs(title = "Average Followers by Posts Bin",
+       x = "Posts Count Bin",
+       y = "Average Followers") +
+  theme_minimal()
+
+# Plot average follows by posts_bin
+p4 <- ggplot(summary_by_posts_bin, aes(x = posts_bin, y = avg_follows)) +
+  geom_col(fill = "salmon") +
+  labs(title = "Average Follows by Posts Bin",
+       x = "Posts Count Bin",
+       y = "Average Follows") +
+  theme_minimal()
+
+# Prepare data for log-log scale plots (remove zeros for log10)
+plot_df <- df %>%
+  filter(posts_count > 0, followers_count > 0, follows_count > 0)
+
+# Calculate correlations on log scale
+cor_log_posts_followers <- cor(log10(plot_df$posts_count), log10(plot_df$followers_count), method = "pearson")
+cor_log_posts_follows <- cor(log10(plot_df$posts_count), log10(plot_df$follows_count), method = "pearson")
+
+cat("Correlation between log(posts_count) and log(followers_count):", cor_log_posts_followers, "\n")
+cat("Correlation between log(posts_count) and log(follows_count):", cor_log_posts_follows, "\n")
+
+# Followers vs Posts plot with log-log scale
+p5 <- ggplot(plot_df, aes(x = posts_count, y = followers_count)) +
+  geom_point(alpha = 0.4, color = "blue") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkblue") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "Followers vs Posts (Log-Log Scale)",
+       x = "Number of Posts (log10)",
+       y = "Number of Followers (log10)") +
+  theme_minimal()
+
+# Follows vs Posts plot with log-log scale
+p6 <- ggplot(plot_df, aes(x = posts_count, y = follows_count)) +
+  geom_point(alpha = 0.4, color = "red") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkred") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "Follows vs Posts (Log-Log Scale)",
+       x = "Number of Posts (log10)",
+       y = "Number of Follows (log10)") +
+  theme_minimal()
+
+# Print plots
+print(p1)
+print(p2)
+print(p3)
+print(p4)
+print(p5)
+print(p6)
+
+
+
+
+
+```
+
